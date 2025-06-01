@@ -440,7 +440,8 @@ const createScene = async () => {
     camera.fov = SETTINGS.camera.fov;
     camera.wheelDeltaPercentage = 0;
     camera.panningSensibility = 0;
-    
+
+
 
     // =========================
     // Input Handling
@@ -457,7 +458,7 @@ const createScene = async () => {
 
     async function createTestItem(x, y, z, itemType = 'health', color = BABYLON.Color3.Red(), modelPath = null) {
         let item;
-        
+
         if (modelPath) {
             const result = await BABYLON.SceneLoader.ImportMeshAsync(null, "", modelPath, scene);
             item = result.meshes[0];
@@ -475,6 +476,64 @@ const createScene = async () => {
         return makePickable(item, itemType, { modelType: modelPath ? 'glb' : 'box', modelPath });
     }
 
+    function findSafeDropPosition(mesh, position) {
+        const directions = [
+            new BABYLON.Vector3(1, 0, 0),   // Right
+            new BABYLON.Vector3(-1, 0, 0),  // Left
+            new BABYLON.Vector3(0, 1, 0),   // Up
+            new BABYLON.Vector3(0, -1, 0),  // Down
+            new BABYLON.Vector3(0, 0, 1),   // Forward
+            new BABYLON.Vector3(0, 0, -1)   // Backward
+        ];
+
+        const rayLength = 100;
+        const rayHelper = new BABYLON.Ray(position, new BABYLON.Vector3(0, -1, 0), rayLength);
+
+        const checkCollision = (pos) => {
+            const radius = Math.max(
+                mesh.getBoundingInfo().boundingBox.extendSize.x * mesh.scaling.x,
+                mesh.getBoundingInfo().boundingBox.extendSize.y * mesh.scaling.y,
+                mesh.getBoundingInfo().boundingBox.extendSize.z * mesh.scaling.z
+            );
+
+            for (const dir of directions) {
+                const ray = new BABYLON.Ray(pos, dir, radius * 2);
+                const hit = scene.pickWithRay(ray, (m) => m !== mesh && m.isPickable && m.isEnabled());
+                if (hit.hit && hit.distance < radius * 0.5) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (!checkCollision(position)) {
+            return position.clone();
+        }
+
+        const step = 0.5;
+        const maxAttempts = 10;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            for (const dir of directions) {
+                for (let dist = 1; dist <= 3; dist++) {
+                    const offset = dir.scale(step * dist * attempt);
+                    const testPos = position.add(offset);
+
+                    if (!checkCollision(testPos)) {
+                        rayHelper.origin.copyFrom(testPos);
+                        const hit = scene.pickWithRay(rayHelper, (m) => m.isPickable && m.isEnabled());
+                        if (hit.hit) {
+                            testPos.y = hit.pickedPoint.y + (mesh.getBoundingInfo().boundingBox.extendSize.y * mesh.scaling.y);
+                            return testPos;
+                        }
+                    }
+                }
+            }
+        }
+
+        return position.clone();
+    }
+
     function makePickable(mesh, itemType, itemData = {}) {
         if (!mesh) return null;
 
@@ -484,15 +543,77 @@ const createScene = async () => {
         mesh.metadata.isPickupItem = true;
         mesh.metadata.itemType = itemType;
         mesh.metadata.itemData = itemData;
+        mesh.metadata.velocityY = 0;
+        mesh.metadata.isGrounded = false;
+        mesh.metadata.gravity = -0.0005;
+        mesh.metadata.groundHeight = null;
+
+        const safePosition = findSafeDropPosition(mesh, mesh.position.clone());
+        mesh.position.copyFrom(safePosition);
 
         if (!pickableItems.includes(mesh)) {
             pickableItems.push(mesh);
         }
-        const startY = mesh.position.y;
+
+        let lastUpdateTime = Date.now();
+        const rayLength = 50;
+        const ray = new BABYLON.Ray(mesh.position, new BABYLON.Vector3(0, -1, 0), rayLength);
+        const predicate = function(meshToCheck) {
+            return meshToCheck !== mesh && meshToCheck.isPickable && meshToCheck.isEnabled();
+        };
+
         const animationId = scene.onBeforeRenderObservable.add(() => {
             if (mesh && mesh.metadata && mesh.metadata.isPickupItem) {
+                // Rotate the item
                 mesh.rotation.y += 0.02;
-                mesh.position.y = startY + Math.sin(engine.getDeltaTime() * 0.003) * 0.2;
+
+                // Cast a ray downward to find the ground
+                ray.origin.copyFrom(mesh.position);
+                ray.origin.y += 0.1;
+                const hit = scene.pickWithRay(ray, predicate);
+
+                if (hit.pickedMesh) {
+                    const groundY = hit.pickedPoint.y + (mesh.getBoundingInfo().boundingBox.extendSize.y * mesh.scaling.y);
+
+                    if (!mesh.metadata.isGrounded) {
+                        const now = Date.now();
+                        const deltaTime = (now - lastUpdateTime) || 16;
+                        lastUpdateTime = now;
+
+                        // Apply gravity
+                        mesh.metadata.velocityY += mesh.metadata.gravity * deltaTime;
+                        mesh.position.y = Math.max(groundY, mesh.position.y + mesh.metadata.velocityY);
+
+                        // Check if we hit the ground
+                        if (mesh.position.y <= groundY + 0.01) {
+                            mesh.position.y = groundY;
+                            mesh.metadata.isGrounded = true;
+                            mesh.metadata.velocityY = 0;
+                        }
+                    } else {
+                        // Gentle floating animation when grounded
+                        mesh.position.y = groundY + Math.sin(engine.getDeltaTime() * 0.003) * 0.02;
+                    }
+                } else {
+                    // No ground detected, just fall
+                    const now = Date.now();
+                    const deltaTime = (now - lastUpdateTime) || 16;
+                    lastUpdateTime = now;
+
+                    mesh.metadata.velocityY += mesh.metadata.gravity * deltaTime;
+                    mesh.position.y += mesh.metadata.velocityY;
+                    mesh.metadata.isGrounded = false;
+                }
+
+                // If we detect being inside something, find a safe position
+                if (scene.pickWithRay(new BABYLON.Ray(mesh.position, new BABYLON.Vector3(0, 1, 0), 0.1),
+                                   (m) => m !== mesh && m.isPickable && m.isEnabled())?.hit) {
+                    const safePos = findSafeDropPosition(mesh, mesh.position);
+                    if (safePos) {
+                        mesh.position.copyFrom(safePos);
+                        mesh.metadata.velocityY = 0;
+                    }
+                }
             }
         });
         mesh.metadata.animationId = animationId;
@@ -686,7 +807,6 @@ const createScene = async () => {
         });
     }
 
-
     function dropItem(slotIndex) {
         const item = inventory[slotIndex];
         if (!item) return;
@@ -701,7 +821,7 @@ const createScene = async () => {
         const worldForward = BABYLON.Vector3.TransformNormal(localForward, rotationMatrix);
         const dropOffset = 2;
         const dropPosition = capsule.position.add(worldForward.scale(dropOffset));
-        dropPosition.y = 1;
+        dropPosition.y = capsule.position.y;
 
         createTestItem(
             dropPosition.x,
@@ -710,38 +830,7 @@ const createScene = async () => {
             item.type,
             new BABYLON.Color3(1, 1, 1),
             item.modelPath
-        ).then(droppedItem => {
-            if (!droppedItem) return;
-
-            const meshesToRotate = [];
-
-            if (droppedItem.getChildMeshes && droppedItem.getChildMeshes().length > 0) {
-                meshesToRotate.push(...droppedItem.getChildMeshes());
-            } else {
-                meshesToRotate.push(droppedItem);
-            }
-
-            const direction = new BABYLON.Vector3(
-                droppedItem.position.x - capsule.position.x,
-                0,
-                droppedItem.position.z - capsule.position.z
-            );
-
-            const targetRotation = Math.atan2(direction.x, direction.z);
-
-            meshesToRotate.forEach(mesh => {
-                if (mesh.rotationQuaternion) {
-                    mesh.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(
-                        targetRotation + Math.PI,
-                        0,
-                        0
-                    );
-                } else {
-                    mesh.rotation.y = targetRotation + Math.PI;
-                }
-            });
-        });
-
+        );
         inventory[slotIndex] = null;
         updateHotbar();
     }
@@ -864,58 +953,7 @@ const createScene = async () => {
     createDrawer(scene, "assets/drawer.glb", new BABYLON.Vector3(3, 0.5, -5), 3, new BABYLON.Vector3(0, 0, 0.2));
     createDrawer(scene, "assets/drawer.glb", new BABYLON.Vector3(3, 0.5, -15), 3, new BABYLON.Vector3(0, 0, 0.2));
 
-    // =========================
-    // Camera Collision System
-    // =========================
-    function updateCameraCollision() {
-        if (!camera || !capsule) return;
-
-        // Get camera position and target (capsule position)
-        const targetPosition = capsule.position.clone();
-        const cameraPosition = camera.position.clone();
-        
-        // Calculate direction from target to camera
-        const direction = cameraPosition.subtract(targetPosition);
-        const distance = direction.length();
-        direction.normalize();
-        
-        // Create a ray from target to camera
-        const ray = new BABYLON.Ray(
-            targetPosition.add(new BABYLON.Vector3(0, SETTINGS.camera.collisionOffsetY, 0)), // Start from slightly above the target
-            direction,
-            distance + 0.5 // Add a small buffer
-        );
-
-        // Check for collisions
-        const hit = scene.pickWithRay(ray, (mesh) => {
-            return mesh.checkCollisions && mesh !== capsule && mesh !== ground;
-        });
-
-        if (hit.hit) {
-            // Calculate new camera position with offset
-            const newDistance = hit.distance - 0.3; // Small offset to prevent clipping
-            const newPosition = targetPosition.add(direction.scale(newDistance));
-            
-            // Smoothly interpolate to the new position
-            camera.position = BABYLON.Vector3.Lerp(
-                camera.position,
-                newPosition,
-                SETTINGS.camera.collisionSmoothing // Smoothing factor (0-1)
-            );
-        } else if (camera.radius < camera.upperRadiusLimit) {
-            // If no collision, smoothly return to original position
-            const desiredPosition = targetPosition.add(direction.scale(distance));
-            camera.position = BABYLON.Vector3.Lerp(
-                camera.position,
-                desiredPosition,
-                SETTINGS.camera.collisionReturnSpeed // Slower return speed for smoother transition
-            );
-        }
-    }
-
-    scene.onBeforeRenderObservable.add(() => {
-        updateCameraCollision();
-    });
+    
 
     // =========================
     // Movement and Physics
@@ -923,7 +961,7 @@ const createScene = async () => {
     let verticalVelocity = 0;
     let isJumping = false;
     let grounded = false;
-    let jumpCooldown = 0.4; // seconds
+    let jumpCooldown = 0.4; 
     let jumpTimer = 0;
 
     scene.onBeforeRenderObservable.add(() => {
