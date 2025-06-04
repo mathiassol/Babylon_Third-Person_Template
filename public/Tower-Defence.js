@@ -73,8 +73,11 @@ window.addEventListener("DOMContentLoaded", () => {
 const SETTINGS = {
     gravity: -0.981,
     jumpForce: 0.3,
-    moveSpeed: 16,
-    turnSpeed: 16,
+    moveSpeed: 8,
+    sprintSpeed: 16,
+    turnSpeed: 8,
+    boxPushMoveSpeed: 0.7,
+    boxPushTurnSpeed: 0.7,
     capsule: {
         height: 2,
         radius: 0.5,
@@ -165,6 +168,9 @@ const createScene = async () => {
     groundMaterial.specularColor = new BABYLON.Color3(0, 0, 0);
     ground.receiveShadows = true;
     ground.material = groundMaterial;
+    ground.collisionGroup = 1;
+    ground.collisionMask = -1; // Collide with everything
+
 
     var wall = BABYLON.MeshBuilder.CreateBox("wall", {size: 2}, scene);
     wall.position.y = 1;
@@ -187,7 +193,8 @@ const createScene = async () => {
     capsule.applyGravity = true;
     capsule.ellipsoid = SETTINGS.capsule.ellipsoid;
     capsule.ellipsoidOffset = SETTINGS.capsule.ellipsoidOffset;
-
+    capsule.collisionGroup = 2;
+    capsule.collisionMask = -1;
 
     initInventorySystem()
 
@@ -221,7 +228,7 @@ const createScene = async () => {
     let originalOffset = SETTINGS.capsule.ellipsoidOffset.clone();
 
     window.addEventListener('keydown', (e) => {
-        if ((e.key === 'Control' || e.key.toLowerCase() === 'c') && !isCrouching) {
+        if ((e.key === 'Control' || e.key.toLowerCase() === 'c') && !isCrouching && playerState.canCrouch) {
             crouch(true);
 
         }
@@ -450,9 +457,15 @@ const createScene = async () => {
     scene.actionManager = new BABYLON.ActionManager(scene);
     scene.actionManager.registerAction(new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnKeyDownTrigger, evt => {
         inputMap[evt.sourceEvent.key.toLowerCase()] = true;
+        if (evt.sourceEvent.key === 'Shift') {
+            inputMap['shift'] = true;
+        }
     }));
     scene.actionManager.registerAction(new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnKeyUpTrigger, evt => {
         inputMap[evt.sourceEvent.key.toLowerCase()] = false;
+        if (evt.sourceEvent.key === 'Shift') {
+            inputMap['shift'] = false;
+        }
     }));
 
 
@@ -564,10 +577,8 @@ const createScene = async () => {
 
         const animationId = scene.onBeforeRenderObservable.add(() => {
             if (mesh && mesh.metadata && mesh.metadata.isPickupItem) {
-                // Rotate the item
                 mesh.rotation.y += 0.02;
 
-                // Cast a ray downward to find the ground
                 ray.origin.copyFrom(mesh.position);
                 ray.origin.y += 0.1;
                 const hit = scene.pickWithRay(ray, predicate);
@@ -580,22 +591,18 @@ const createScene = async () => {
                         const deltaTime = (now - lastUpdateTime) || 16;
                         lastUpdateTime = now;
 
-                        // Apply gravity
                         mesh.metadata.velocityY += mesh.metadata.gravity * deltaTime;
                         mesh.position.y = Math.max(groundY, mesh.position.y + mesh.metadata.velocityY);
 
-                        // Check if we hit the ground
                         if (mesh.position.y <= groundY + 0.01) {
                             mesh.position.y = groundY;
                             mesh.metadata.isGrounded = true;
                             mesh.metadata.velocityY = 0;
                         }
                     } else {
-                        // Gentle floating animation when grounded
                         mesh.position.y = groundY + Math.sin(engine.getDeltaTime() * 0.003) * 0.02;
                     }
                 } else {
-                    // No ground detected, just fall
                     const now = Date.now();
                     const deltaTime = (now - lastUpdateTime) || 16;
                     lastUpdateTime = now;
@@ -605,9 +612,8 @@ const createScene = async () => {
                     mesh.metadata.isGrounded = false;
                 }
 
-                // If we detect being inside something, find a safe position
                 if (scene.pickWithRay(new BABYLON.Ray(mesh.position, new BABYLON.Vector3(0, 1, 0), 0.1),
-                                   (m) => m !== mesh && m.isPickable && m.isEnabled())?.hit) {
+                    (m) => m !== mesh && m.isPickable && m.isEnabled())?.hit) {
                     const safePos = findSafeDropPosition(mesh, mesh.position);
                     if (safePos) {
                         mesh.position.copyFrom(safePos);
@@ -845,7 +851,6 @@ const createScene = async () => {
         createTestItem(0, 1, 5, 'ammo', BABYLON.Color3.Yellow());
         createTestItem(-5, 1, 0, 'weapon', BABYLON.Color3.Green());
         createTestItem(5, 1, 0, 'weapon', null, 'assets/dummy.glb');
-
     }
 
     // =========================
@@ -953,7 +958,229 @@ const createScene = async () => {
     createDrawer(scene, "assets/drawer.glb", new BABYLON.Vector3(3, 0.5, -5), 3, new BABYLON.Vector3(0, 0, 0.2));
     createDrawer(scene, "assets/drawer.glb", new BABYLON.Vector3(3, 0.5, -15), 3, new BABYLON.Vector3(0, 0, 0.2));
 
-    
+    // =========================
+    // Box Attachment System
+    // =========================
+    let isPushingBox = false;
+    let pushedBox = null;
+    const PUSH_OFFSET = new BABYLON.Vector3(0, 0, -1.5);
+    const BOX_SIZE = 1.3;
+    let originalMoveSpeed = SETTINGS.moveSpeed;
+    let originalTurnSpeed = SETTINGS.turnSpeed;
+
+    const pushableBoxes = [];
+
+    function createPushableBox(x, y, z, color) {
+        const box = BABYLON.MeshBuilder.CreateBox('pushBox', {size: BOX_SIZE}, scene);
+        box.position = new BABYLON.Vector3(x, y, z);
+        box.checkCollisions = true;
+
+        box.ellipsoid = new BABYLON.Vector3(BOX_SIZE * 0.5, BOX_SIZE * 0.5, BOX_SIZE * 0.5);
+        box.ellipsoidOffset = new BABYLON.Vector3(0, BOX_SIZE * 0.5, 0);
+
+        const boxMat = new BABYLON.StandardMaterial('boxMat', scene);
+        boxMat.diffuseColor = color || new BABYLON.Color3(
+            Math.random() * 0.5 + 0.5,
+            Math.random() * 0.5 + 0.5,
+            Math.random() * 0.5 + 0.5
+        );
+        box.material = boxMat;
+
+        box.collisionGroup = 3;
+        box.collisionMask = -1;
+
+        pushableBoxes.push(box);
+        return box;
+    }
+
+    createPushableBox(5, 1, 5, new BABYLON.Color3(1, 0, 0));  // Red box
+    createPushableBox(-5, 1, 5, new BABYLON.Color3(0, 1, 0)); // Green box
+    createPushableBox(0, 1, -5, new BABYLON.Color3(0, 0, 1)); // Blue box
+
+
+    const pushPromptUI = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("pushPromptUI");
+    const pushPrompt = new BABYLON.GUI.TextBlock("pushPrompt", "E to push");
+    pushPrompt.color = "white";
+    pushPrompt.fontSize = 48;
+    pushPrompt.fontFamily = "Arial";
+    pushPrompt.outlineColor = "black";
+    pushPrompt.outlineWidth = 4;
+    pushPrompt.alpha = 0;
+    pushPromptUI.addControl(pushPrompt);
+
+    scene.onBeforeRenderObservable.add(() => {
+        if (isPushingBox) {
+            pushPrompt.alpha = 0;
+            return;
+        }
+
+        let closestBox = null;
+        let minDistance = 3.0;
+
+        for (const box of pushableBoxes) {
+            const distance = BABYLON.Vector3.Distance(capsule.position, box.position);
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestBox = box;
+            }
+        }
+
+        pushPrompt.alpha = BABYLON.Scalar.Lerp(
+            pushPrompt.alpha,
+            closestBox ? 1 : 0,
+            0.1
+        );
+
+        if (closestBox) {
+            pushPrompt.top = "0px";
+            pushPrompt.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+            pushPrompt.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+        }
+    });
+
+    function toggleBoxPushing() {
+        if (isPushingBox) {
+            // When stopping pushing
+            isPushingBox = false;
+            pushedBox = null;
+
+            SETTINGS.moveSpeed = originalMoveSpeed;
+            SETTINGS.turnSpeed = originalTurnSpeed;
+
+            playerState.canRun = true;
+            playerState.canCrouch = true;
+            playerState.canJump = true;
+
+            console.log('Stopped pushing box');
+        } else {
+            let closestBox = null;
+            let minDistance = 2.0;
+
+            for (const box of pushableBoxes) {
+                const distance = BABYLON.Vector3.Distance(capsule.position, box.position);
+                const directionToBox = box.position.subtract(capsule.position).normalize();
+                const dot = BABYLON.Vector3.Dot(capsule.forward, directionToBox);
+
+                if (distance < minDistance && dot > 0.7) {
+                    closestBox = box;
+                    minDistance = distance;
+                }
+            }
+
+            if (closestBox) {
+                isPushingBox = true;
+                pushedBox = closestBox;
+
+                originalMoveSpeed = SETTINGS.moveSpeed;
+                originalTurnSpeed = SETTINGS.turnSpeed;
+
+                SETTINGS.moveSpeed = SETTINGS.boxPushMoveSpeed || 1.5;
+                SETTINGS.turnSpeed = SETTINGS.boxPushTurnSpeed || 0.3;
+
+                playerState.canRun = false;
+                playerState.canCrouch = false;
+                playerState.canJump = false;
+
+                if (playerState.isCrouching) {
+                    crouch(false);
+                }
+
+                console.log('Started pushing box');
+            }
+        }
+    }
+
+
+    scene.onBeforeRenderObservable.add(() => {
+        if (isPushingBox && pushedBox) {
+            const boxForward = new BABYLON.Vector3(0, 0, 1);
+            const boxRotationMatrix = BABYLON.Matrix.RotationY(pushedBox.rotation.y);
+            const boxTransformedForward = BABYLON.Vector3.TransformCoordinates(boxForward, boxRotationMatrix);
+
+            const targetPlayerPosition = pushedBox.position.add(boxTransformedForward.scale(PUSH_OFFSET.z));
+            targetPlayerPosition.y = capsule.position.y;
+
+            let rotationAmount = 0;
+            let isMovingBackward = (inputMap["s"] || inputMap["ArrowDown"]);
+            let turnDirection = 1;
+
+            if (isMovingBackward) {
+                turnDirection = -1;
+            }
+
+            if (inputMap["d"] || inputMap["ArrowLeft"]) rotationAmount += 0.03 * turnDirection;
+            if (inputMap["a"] || inputMap["ArrowRight"]) rotationAmount -= 0.03 * turnDirection;
+
+            if (rotationAmount !== 0) {
+                pushedBox.rotation.y += rotationAmount;
+
+                const newBoxRotationMatrix = BABYLON.Matrix.RotationY(pushedBox.rotation.y);
+                boxTransformedForward.copyFrom(BABYLON.Vector3.TransformCoordinates(boxForward, newBoxRotationMatrix));
+
+                targetPlayerPosition.copyFrom(pushedBox.position).addInPlace(boxTransformedForward.scale(PUSH_OFFSET.z));
+                targetPlayerPosition.y = capsule.position.y;
+            }
+
+            let moveAmount = 0;
+            if (inputMap["w"] || inputMap["ArrowUp"]) moveAmount += 0.1;
+            if (inputMap["s"] || inputMap["ArrowDown"]) moveAmount -= 0.1;
+
+            if (moveAmount !== 0) {
+                const movement = boxTransformedForward.scale(moveAmount);
+                movement.y = 0;
+
+                const oldBoxPosition = pushedBox.position.clone();
+                const oldPlayerY = targetPlayerPosition.y;
+
+                pushedBox.moveWithCollisions(movement);
+
+                pushedBox.position.y = oldBoxPosition.y;
+
+                targetPlayerPosition.x += movement.x;
+                targetPlayerPosition.z += movement.z;
+                targetPlayerPosition.y = oldPlayerY;
+
+                capsule.position.x = targetPlayerPosition.x;
+                capsule.position.z = targetPlayerPosition.z;
+                capsule.position.y = oldPlayerY;
+            }
+
+            const newPosition = BABYLON.Vector3.Lerp(
+                capsule.position,
+                targetPlayerPosition,
+                0.2
+            );
+
+            capsule.moveWithCollisions(newPosition.subtract(capsule.position));
+
+            const direction = pushedBox.position.subtract(capsule.position);
+            direction.y = 0;
+
+            if (direction.lengthSquared() > 0.01) {
+                let targetRotation = Math.atan2(direction.x, direction.z);
+
+                let currentRotation = ((capsule.rotation.y % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+
+                targetRotation = ((targetRotation - currentRotation + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI + currentRotation;
+
+                capsule.rotation.y = BABYLON.Scalar.Lerp(
+                    currentRotation,
+                    targetRotation,
+                    0.2
+                );
+            }
+        }
+    });
+
+    scene.actionManager.registerAction(new BABYLON.ExecuteCodeAction(
+        BABYLON.ActionManager.OnKeyDownTrigger,
+        (evt) => {
+            if (evt.sourceEvent.key.toLowerCase() === 'e') {
+                toggleBoxPushing();
+            }
+        }
+    ));
+
 
     // =========================
     // Movement and Physics
@@ -961,8 +1188,20 @@ const createScene = async () => {
     let verticalVelocity = 0;
     let isJumping = false;
     let grounded = false;
-    let jumpCooldown = 0.4; 
+    let jumpCooldown = 0.1;
     let jumpTimer = 0;
+
+    const playerState = {
+        isWalking: false,
+        isRunning: false,
+        isCrouching: false,
+        isJumping: false,
+        isGrounded: false,
+        currentSpeed: 0,
+        canRun: true,
+        canCrouch: true,
+        canJump: true
+    };
 
     scene.onBeforeRenderObservable.add(() => {
 
@@ -970,7 +1209,19 @@ const createScene = async () => {
         const deltaTime = (currentTime - previousTime) / 1000;
         previousTime = currentTime;
 
-        const moveSpeed = SETTINGS.moveSpeed;
+        const isMoving = (inputMap["w"] || inputMap["a"] || inputMap["s"] || inputMap["d"]);
+        const isSprinting = inputMap['shift'] && isMoving && !isCrouching && grounded && playerState.canRun;
+
+        playerState.isWalking = isMoving && !isSprinting && grounded;
+        playerState.isRunning = isSprinting;
+        playerState.isCrouching = isCrouching;
+        playerState.isJumping = !grounded && verticalVelocity > 0;
+        playerState.isGrounded = grounded;
+
+        const currentMoveSpeed = isSprinting ? SETTINGS.sprintSpeed : SETTINGS.moveSpeed;
+        playerState.currentSpeed = isMoving ? (isSprinting ? 2 : 1) : 0;
+
+        const moveSpeed = currentMoveSpeed;
         const turnSpeed = SETTINGS.turnSpeed * deltaTime;
         let moveDirection = new BABYLON.Vector3.Zero();
 
@@ -998,10 +1249,10 @@ const createScene = async () => {
 
         jumpTimer -= deltaTime;
 
-        const onGround = isGrounded();
+        grounded = isGrounded();
 
-        if (onGround) {
-            if (inputMap[" "] && jumpTimer <= 0) {
+        if (grounded) {
+            if (inputMap[" "] && jumpTimer <= 0 && playerState.canJump) {
                 verticalVelocity = SETTINGS.jumpForce;
                 jumpTimer = jumpCooldown;
             } else if (verticalVelocity < 0) {
@@ -1016,6 +1267,8 @@ const createScene = async () => {
             !crouchKeyHeld
         ) {
             crouch(false);
+        } else if (inputMap["Control"] && !isCrouching && playerState.canCrouch) {
+            crouch(true);
         }
 
         moveDirection.y = verticalVelocity;
@@ -1060,6 +1313,35 @@ const createScene = async () => {
         while (delta < -Math.PI) delta += 2 * Math.PI;
         return from + delta * alpha;
     }
+
+    function createDebugUI() {
+        const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("debugUI");
+        const debugText = new BABYLON.GUI.TextBlock();
+        debugText.text = "";
+        debugText.color = "white";
+        debugText.fontSize = 20;
+        debugText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+        debugText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+        debugText.paddingLeft = "10px";
+        debugText.paddingTop = "10px";
+        advancedTexture.addControl(debugText);
+
+        scene.onBeforeRenderObservable.add(() => {
+            const state = [];
+            if (playerState.isWalking) state.push("Walking");
+            if (playerState.isRunning) state.push("Running");
+            if (playerState.isCrouching) state.push("Crouching");
+            if (playerState.isJumping) state.push("Jumping");
+            if (state.length === 0) state.push("Idle");
+            
+            debugText.text = `State: ${state.join(", ")}\n` +
+                           `Speed: ${playerState.currentSpeed.toFixed(1)}x\n` +
+                           `Grounded: ${playerState.isGrounded ? "Yes" : "No"}\n` +
+                           `Position: (${capsule.position.x.toFixed(1)}, ${capsule.position.y.toFixed(1)}, ${capsule.position.z.toFixed(1)})`;
+        });
+    }
+
+    createDebugUI();
 
     return scene;
 };
