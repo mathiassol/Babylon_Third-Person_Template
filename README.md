@@ -1,6 +1,6 @@
 # 3D Game with Babylon.js
 
-A 3D game project built with Babylon.js, featuring a Node.js server for multiplayer functionality.
+A 3D game project built with Babylon.js, featuring a Node.js server for multiplayer functionality. the game is a puzzle game with pushable boxes and puzzles. you use the boxes to redirect the laser beam to open the door. the laser needs to hit the red transparent block to open the blue door.
 
 ## Features
 
@@ -9,6 +9,8 @@ A 3D game project built with Babylon.js, featuring a Node.js server for multipla
 - Physics simulation with Ammo.js
 - Interactive GUI elements
 - Save game functionality
+- pushable boxes
+- puzzles
 
 ## Prerequisites
 
@@ -37,7 +39,7 @@ Start the development server:
 npm start
 ```
 
-The game will be available at `http://localhost:3000`
+The game will be available at `http://localhost:51115/game.html`.
 
 ### Electron App
 
@@ -59,16 +61,3 @@ npm run startE
 - **@babylonjs/havok**: Physics engine
 - **express**: Web server
 - **ws**: WebSocket server
-- **electron**: Desktop application wrapper
-
-## Contributing
-
-1. Fork the repository
-2. Create a new branch for your feature
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

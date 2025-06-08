@@ -147,6 +147,7 @@ const createScene = async () => {
 
 
 
+
     const havokInstance = await HavokPhysics();
     const havokPlugin = new BABYLON.HavokPlugin(true, havokInstance);
     scene.enablePhysics(new BABYLON.Vector3(0, SETTINGS.gravity, 0), havokPlugin);
@@ -157,61 +158,57 @@ const createScene = async () => {
     // =========================
     // Lighting and Environment
     // =========================
-    // Main directional light (sun)
     const sunLight = new BABYLON.DirectionalLight("sunLight", new BABYLON.Vector3(-1, -2, 1), scene);
     sunLight.intensity = 1.2;
     sunLight.position = new BABYLON.Vector3(0, 30, 0);
     sunLight.shadowEnabled = true;
-    
-    const shadowGenerator = new BABYLON.ShadowGenerator(2048, sunLight); // Increased resolution
+
+    const shadowGenerator = new BABYLON.ShadowGenerator(2048, sunLight);
     shadowGenerator.useBlurExponentialShadowMap = true;
-    shadowGenerator.blurKernel = 16; // Reduced blur for sharper shadows
-    shadowGenerator.darkness = 0.3; // Lighter shadows
-    shadowGenerator.forceBackFacesOnly = false; // Better quality for thin objects
-    
+    shadowGenerator.blurKernel = 16;
+    shadowGenerator.darkness = 0.3;
+    shadowGenerator.forceBackFacesOnly = false;
+
     scene.shadowGenerator = shadowGenerator;
-    
+
     const ambientLight = new BABYLON.HemisphericLight("ambientLight", new BABYLON.Vector3(0, 1, 0), scene);
     ambientLight.intensity = 0.6;
     ambientLight.groundColor = new BABYLON.Color3(0.2, 0.2, 0.3);
     ambientLight.diffuse = new BABYLON.Color3(0.8, 0.8, 0.9);
-    
+
     const pointLight1 = new BABYLON.PointLight("pointLight1", new BABYLON.Vector3(20, 10, 20), scene);
     pointLight1.intensity = 0.8;
     pointLight1.diffuse = new BABYLON.Color3(0.9, 0.9, 1);
     pointLight1.specular = new BABYLON.Color3(0.8, 0.8, 1);
     pointLight1.range = 50;
-    
+
     const pointLight2 = new BABYLON.PointLight("pointLight2", new BABYLON.Vector3(-20, 8, -20), scene);
     pointLight2.intensity = 0.6;
     pointLight2.diffuse = new BABYLON.Color3(1, 0.9, 0.8);
     pointLight2.specular = new BABYLON.Color3(1, 0.8, 0.7);
     pointLight2.range = 40;
-    
-    // Add some animated lights for visual interest
+
     const createAnimatedLight = (position, color, range = 30, speed = 1) => {
         const light = new BABYLON.PointLight("animatedLight", position, scene);
         light.intensity = 0.5;
         light.diffuse = color;
         light.range = range;
-        
+
         let time = 0;
         const originalY = position.y;
-        
+
         scene.registerBeforeRender(() => {
             time += 0.01 * speed;
             light.intensity = 0.4 + Math.sin(time) * 0.1;
             light.position.y = originalY + Math.sin(time * 1.5) * 2;
         });
-        
+
         return light;
     };
-    
-    // Add some animated lights around the scene
+
     createAnimatedLight(new BABYLON.Vector3(15, 5, 15), new BABYLON.Color3(0.8, 0.9, 1), 25, 0.8);
     createAnimatedLight(new BABYLON.Vector3(-15, 7, -15), new BABYLON.Color3(1, 0.9, 0.8), 25, 1.2);
-    
-    // Enable and configure image processing for better lighting quality
+
     scene.imageProcessingEnabled = true;
     if (scene.imageProcessingConfiguration) {
         scene.imageProcessingConfiguration.contrast = 1.2;
@@ -226,12 +223,12 @@ const createScene = async () => {
     ground.checkCollisions = true;
 
     const groundMaterial = new BABYLON.StandardMaterial("groundMat", scene);
-    groundMaterial.diffuseTexture = new BABYLON.Texture("assets/texture_01.png", scene);
+    groundMaterial.diffuseTexture = new BABYLON.Texture("assets/texture.png", scene);
     groundMaterial.diffuseTexture.uScale = 10;
     groundMaterial.diffuseTexture.vScale = 10;
-    groundMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduced specular
-    groundMaterial.specularPower = 10; // Reduced specular power
-    groundMaterial.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Slight ambient
+    groundMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+    groundMaterial.specularPower = 10;
+    groundMaterial.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1);
     ground.receiveShadows = true;
     ground.material = groundMaterial;
     ground.collisionGroup = 1;
@@ -248,7 +245,7 @@ const createScene = async () => {
 
     function createWall(x, y, z, width = 10, height = 20, depth = 2) {
         if (wall) {
-            wall.dispose(); // Remove existing wall if any
+            wall.dispose();
         }
 
         wall = BABYLON.MeshBuilder.CreateBox('wall', {
@@ -261,9 +258,9 @@ const createScene = async () => {
         wall.checkCollisions = true;
 
         const wallMat = new BABYLON.StandardMaterial('wallMat', scene);
-        wallMat.diffuseColor = new BABYLON.Color3(0, 0, 1); // Blue color
-        wallMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduced specular
-        wallMat.specularPower = 20; // Reduced specular power
+        wallMat.diffuseColor = new BABYLON.Color3(0, 0, 1);
+        wallMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        wallMat.specularPower = 20;
         wallMat.alpha = 0.7;
         wall.material = wallMat;
 
@@ -276,7 +273,7 @@ const createScene = async () => {
     }
 
     function setupWallMovement() {
-        createWall(0, 0, 30);
+        createWall(0, 0, 15);
 
         if (wallMovementInterval) {
             clearInterval(wallMovementInterval);
@@ -303,6 +300,41 @@ const createScene = async () => {
             }
         }, 100);
     }
+
+    function createWall2(scene, position, width = 2, height = 2, depth = 0.5) {
+        const wallMaterial = new BABYLON.StandardMaterial("wallMaterial", scene);
+        wallMaterial.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+        wallMaterial.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+
+        const wall = BABYLON.MeshBuilder.CreateBox("wall", {
+            width: width,
+            height: height,
+            depth: depth
+        }, scene);
+
+        wall.material = wallMaterial;
+        wall.position.x = position.x;
+        wall.position.y = position.y;
+        wall.position.z = position.z;
+        wall.checkCollisions = true;
+
+        return wall;
+    }
+
+    createWall2(
+        scene,
+        new BABYLON.Vector3(5, 1, 0),
+        20,
+        2,
+        0.5
+    );
+    createWall2(
+        scene,
+        new BABYLON.Vector3(-5, 1, 5),
+        20,
+        2,
+        0.5
+    );
 
     // =========================
     // Player Setup
@@ -497,10 +529,20 @@ const createScene = async () => {
     };
 
     function createSimpleRoom(width = 20, height = 10, depth = 20) {
+        const texture = new BABYLON.Texture("assets/texture.png", scene);
+        texture.uScale = 2.0;
+        texture.vScale = 2.0;
+        
+        const roomMaterial = new BABYLON.StandardMaterial("roomMat", scene);
+        roomMaterial.diffuseTexture = texture;
+        roomMaterial.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+        roomMaterial.specularPower = 20;
+
         const floor = BABYLON.MeshBuilder.CreateGround("floor", {
             width: width,
             height: depth
         }, scene);
+        floor.material = roomMaterial;
 
         const ceiling = BABYLON.MeshBuilder.CreateGround("ceiling", {
             width: width,
@@ -508,9 +550,10 @@ const createScene = async () => {
         }, scene);
         ceiling.position.y = height;
         ceiling.rotation.x = Math.PI;
+        ceiling.material = roomMaterial;
 
-        const wallMaterial = new BABYLON.StandardMaterial("wallMat", scene);
-        wallMaterial.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8); // Light gray
+        const wallMaterial = roomMaterial.clone("wallMat");
+        wallMaterial.diffuseTexture = texture;
 
         const backWall = BABYLON.MeshBuilder.CreateBox("backWall", {
             width: width,
@@ -576,10 +619,8 @@ const createScene = async () => {
         };
     }
 
-    const room = createSimpleRoom(30, 10, 30); // 30x10x30 room
+    const room = createSimpleRoom(30, 10, 30);
 
-    // For any mesh that should cast shadows, add it to the shadow generator
-    // Example for the wall
     if (wall) {
         wall.receiveShadows = true;
         shadowGenerator.addShadowCaster(wall);
@@ -652,6 +693,18 @@ const createScene = async () => {
     camera.fov = SETTINGS.camera.fov;
     camera.wheelDeltaPercentage = 0;
     camera.panningSensibility = 0;
+
+    camera.checkCollisions = true;
+    camera.collisionRadius = new BABYLON.Vector3(0.5, 0.5, 0.5);
+    camera.attachControl(canvas, true, false, 1);
+    camera.angularSensibility = 2000;
+    camera.lowerRadiusLimit = 2;
+    camera.upperRadiusLimit = 10;
+    camera.lowerBetaLimit = 0.1;
+    camera.upperBetaLimit = (Math.PI / 2) * 0.9;
+    camera.useAutoRotationBehavior = false;
+    camera.allowUpsideDown = false;
+
 
 
 
@@ -1052,13 +1105,8 @@ const createScene = async () => {
 
         scene.onBeforeRenderObservable.add(checkForPickups);
 
-        createTestItem(5, 1, 0, 'health', BABYLON.Color3.Red());
-        createTestItem(0, 1, 5, 'ammo', BABYLON.Color3.Yellow());
-        createTestItem(-5, 1, 0, 'weapon', BABYLON.Color3.Green());
-        createTestItem(5, 1, 0, 'weapon', null, 'assets/dummy.glb');
     }
 
-    // Laser settings
     const LASER_SETTINGS = {
         maxDistance: 50,
         maxBounces: 10,
@@ -1123,10 +1171,8 @@ const createScene = async () => {
 
             currentPosition = hitPoint.clone();
 
-            // Check if we hit a pushable box
             const hitBox = hit.pickedMesh && pushableBoxes.includes(hit.pickedMesh);
             if (hitBox) {
-                // Get the normal at the hit point
                 const normal = hit.getNormal(true);
                 if (!normal) {
                     console.warn("Could not get normal at hit point");
@@ -1134,21 +1180,17 @@ const createScene = async () => {
                 }
                 normal.normalize();
 
-                // Calculate reflection direction
                 const dot = BABYLON.Vector3.Dot(currentDirection, normal);
                 const reflection = currentDirection.subtract(
                     normal.scale(2 * dot)
                 ).normalize();
 
-                // Update direction and position for next iteration
                 currentDirection = reflection;
                 currentPosition.addInPlace(reflection.scale(0.1));
 
-                // Update remaining distance and bounce count
                 remainingDistance -= (hit.distance || 0) + 0.1;
                 bounces++;
 
-                // Add the new direction point
                 points.push(currentPosition.clone());
             } else {
                 break;
@@ -1156,16 +1198,13 @@ const createScene = async () => {
         }
 
 
-        // Ensure we have at least 2 valid points
         const validPoints = points.filter(p => p &&
             !isNaN(p.x) && !isNaN(p.y) && !isNaN(p.z));
 
         if (validPoints.length < 2) {
-            // If we don't have enough valid points, create a default line
             validPoints.push(laserOrigin.clone().add(laserDirection.clone().scale(1)));
         }
 
-        // Ensure we don't have duplicate points
         const finalPoints = [validPoints[0]];
         for (let i = 1; i < validPoints.length; i++) {
             if (BABYLON.Vector3.DistanceSquared(finalPoints[finalPoints.length - 1], validPoints[i]) > 0.001) {
@@ -1179,7 +1218,6 @@ const createScene = async () => {
         }
 
 
-        // Create or update the laser beam
         if (!laserBeam) {
             try {
                 laserBeam = BABYLON.MeshBuilder.CreateTube("laser", {
@@ -1205,23 +1243,19 @@ const createScene = async () => {
             }
         } else {
             try {
-                // Instead of using instance, create a new mesh and dispose the old one
                 const newLaser = BABYLON.MeshBuilder.CreateTube("laser", {
                     path: finalPoints,
                     radius: LASER_SETTINGS.laserWidth,
                     sideOrientation: BABYLON.Mesh.DOUBLESIDE
                 }, scene);
 
-                // Copy material from old laser
                 newLaser.material = laserBeam.material;
 
-                // Update glow layer
                 if (laserGlowLayer) {
                     laserGlowLayer.removeIncludedOnlyMesh(laserBeam);
                     laserGlowLayer.addIncludedOnlyMesh(newLaser);
                 }
 
-                // Clean up old laser
                 laserBeam.dispose();
                 laserBeam = newLaser;
             } catch (e) {
@@ -1233,10 +1267,9 @@ const createScene = async () => {
 
     function createLaserBlock(x, y, z, width = 2, height = 2, depth = 2) {
         if (laserBlock) {
-            laserBlock.dispose(); // Remove existing block if any
+            laserBlock.dispose();
         }
 
-        // Create a box with collision enabled
         laserBlock = BABYLON.MeshBuilder.CreateBox('laserBlock', {
             width: width,
             height: height,
@@ -1246,7 +1279,6 @@ const createScene = async () => {
         laserBlock.position = new BABYLON.Vector3(x, y, z);
         laserBlock.checkCollisions = true;
 
-        // Make it red and semi-transparent
         const material = new BABYLON.StandardMaterial('laserBlockMat', scene);
         material.diffuseColor = new BABYLON.Color3(1, 0, 0);
         material.alpha = 0.7;
@@ -1261,7 +1293,6 @@ const createScene = async () => {
 
     updateLaserBeam();
 
-    // Add this function to display the block state
     function updateBlockStateDisplay() {
         if (!laserBlock) {
             console.log("No block exists");
@@ -1273,7 +1304,6 @@ const createScene = async () => {
                     `Laser Hit: ${laserHitsBlock ? 'YES' : 'NO'}`);
     }
 
-    // In the createScene function, add this to the render loop:
     scene.onBeforeRenderObservable.add(() => {
         if (laserBlock) {
             updateBlockStateDisplay();
@@ -1413,8 +1443,8 @@ const createScene = async () => {
             Math.random() * 0.5 + 0.5,
             Math.random() * 0.5 + 0.5
         );
-        boxMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduced specular
-        boxMat.specularPower = 20; // Reduced specular power
+        boxMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        boxMat.specularPower = 20;
         box.material = boxMat;
 
         box.collisionGroup = 3;
@@ -1424,9 +1454,9 @@ const createScene = async () => {
         return box;
     }
 
-    createPushableBox(5, 1, 5, new BABYLON.Color3(1, 0, 0));  // Red box
-    createPushableBox(-5, 1, 5, new BABYLON.Color3(0, 1, 0)); // Green box
-    createPushableBox(0, 1, -5, new BABYLON.Color3(0, 0, 1)); // Blue box
+    createPushableBox(5, 1, -5, new BABYLON.Color3(1, 0, 0));
+    createPushableBox(-5, 1, -5, new BABYLON.Color3(0, 1, 0));
+    createPushableBox(0, 1, -5, new BABYLON.Color3(0, 0, 1));
 
 
     const pushPromptUI = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("pushPromptUI");
@@ -1446,13 +1476,13 @@ const createScene = async () => {
         }
 
         let closestBox = null;
-        let minDistance = 3.0;
+        const PUSH_RANGE = 4.0;
 
         for (const box of pushableBoxes) {
             const distance = BABYLON.Vector3.Distance(capsule.position, box.position);
-            if (distance < minDistance) {
-                minDistance = distance;
+            if (distance < PUSH_RANGE) {
                 closestBox = box;
+                break;
             }
         }
 
@@ -1461,7 +1491,6 @@ const createScene = async () => {
             closestBox ? 1 : 0,
             0.1
         );
-
         if (closestBox) {
             pushPrompt.top = "0px";
             pushPrompt.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
@@ -1471,51 +1500,59 @@ const createScene = async () => {
 
     function toggleBoxPushing() {
         if (isPushingBox) {
-            // When stopping pushing
             isPushingBox = false;
             pushedBox = null;
-
             SETTINGS.moveSpeed = originalMoveSpeed;
             SETTINGS.turnSpeed = originalTurnSpeed;
-
             playerState.canRun = true;
             playerState.canCrouch = true;
             playerState.canJump = true;
-
             console.log('Stopped pushing box');
         } else {
             let closestBox = null;
-            let minDistance = 2.0;
+            let closestDistance = Infinity;
+            const PUSH_RANGE = 4.0;
 
             for (const box of pushableBoxes) {
                 const distance = BABYLON.Vector3.Distance(capsule.position, box.position);
-                const directionToBox = box.position.subtract(capsule.position).normalize();
-                const dot = BABYLON.Vector3.Dot(capsule.forward, directionToBox);
-
-                if (distance < minDistance && dot > 0.7) {
+                if (distance < PUSH_RANGE && distance < closestDistance) {
                     closestBox = box;
-                    minDistance = distance;
+                    closestDistance = distance;
                 }
             }
 
             if (closestBox) {
+                const direction = capsule.position.subtract(closestBox.position).normalize();
+
+                const boxRotationMatrix = BABYLON.Matrix.RotationY(closestBox.rotation.y);
+                const boxRight = BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(1, 0, 0), boxRotationMatrix);
+                const boxForward = BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(0, 0, 1), boxRotationMatrix);
+
+                const dotRight = Math.abs(BABYLON.Vector3.Dot(direction, boxRight));
+                const dotForward = Math.abs(BABYLON.Vector3.Dot(direction, boxForward));
+
+                let pushDirection;
+                if (dotForward > dotRight) {
+                    pushDirection = BABYLON.Vector3.Dot(direction, boxForward) > 0 ?
+                        boxForward.negate() : boxForward;
+                } else {
+                    pushDirection = BABYLON.Vector3.Dot(direction, boxRight) > 0 ?
+                        boxRight.negate() : boxRight;
+                }
+
+                const targetRotation = Math.atan2(pushDirection.x, pushDirection.z);
+                closestBox.rotation.y = targetRotation;
+
                 isPushingBox = true;
                 pushedBox = closestBox;
-
                 originalMoveSpeed = SETTINGS.moveSpeed;
                 originalTurnSpeed = SETTINGS.turnSpeed;
-
                 SETTINGS.moveSpeed = SETTINGS.boxPushMoveSpeed || 1.5;
                 SETTINGS.turnSpeed = SETTINGS.boxPushTurnSpeed || 0.3;
-
                 playerState.canRun = false;
                 playerState.canCrouch = false;
                 playerState.canJump = false;
-
-                if (playerState.isCrouching) {
-                    crouch(false);
-                }
-
+                if (playerState.isCrouching) crouch(false);
                 console.log('Started pushing box');
             }
         }
@@ -1603,14 +1640,13 @@ const createScene = async () => {
         }
     });
 
-    scene.actionManager.registerAction(new BABYLON.ExecuteCodeAction(
-        BABYLON.ActionManager.OnKeyDownTrigger,
-        (evt) => {
-            if (evt.sourceEvent.key.toLowerCase() === 'e') {
+    scene.onKeyboardObservable.add((kbInfo) => {
+        if (kbInfo.type === BABYLON.KeyboardEventTypes.KEYDOWN) {
+            if (kbInfo.event.key.toLowerCase() === 'e') {
                 toggleBoxPushing();
             }
         }
-    ));
+    });
 
 
     // =========================
@@ -1774,17 +1810,14 @@ const createScene = async () => {
 
     createDebugUI();
 
-    // Function to make any mesh non-reflective and shadow-casting
     function setupMeshShadows(mesh) {
         if (!mesh || !mesh.material) return;
         
-        // If material is a StandardMaterial
         if (mesh.material instanceof BABYLON.StandardMaterial) {
             mesh.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
             mesh.material.specularPower = 10;
         }
         
-        // Enable shadows
         mesh.receiveShadows = true;
         if (shadowGenerator) {
             shadowGenerator.addShadowCaster(mesh);
