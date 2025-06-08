@@ -1108,7 +1108,7 @@ const createScene = async () => {
     }
 
     const LASER_SETTINGS = {
-        maxDistance: 50,
+        maxDistance: 65,
         maxBounces: 10,
         laserWidth: 0.05,
         laserColor: new BABYLON.Color3(1, 0, 0),
